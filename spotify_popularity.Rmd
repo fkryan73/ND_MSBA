@@ -1,0 +1,1128 @@
+---
+title: "Machine Learning Project - Spotify and Song Popularity"
+author: "F. Kevin Ryan, Jr.; Kevin Buchanan; Lauren Sapone"
+date: "11/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Load Packages
+
+```{r Load Packages}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ggdark)
+library(ggrepel)
+library(ggthemes)
+library(DT)
+library(broom)
+library(splitstackshape)
+library(randomForest)
+library(caret)
+library(xgboost)
+library(OptimalCutpoints)
+library(Metrics)
+library(ggforce)
+```
+
+# Read in the Dataset
+
+```{r Read In}
+spotify <- read_csv("spotify.csv")
+```
+
+# Pre-Processing
+
+### Base Exploration
+
+```{r Exploration_1}
+str(spotify)
+summary(spotify)
+head(spotify)
+tail(spotify)
+dim(spotify)
+```
+
+Seems like our data needs some cleanup before we can visualize and analyze further.
+
+### Remove Unncessary Columns
+
+First, The "id" and "release_date" columns seem to be unnecessary columns and overall just noise in the dataset. The "id" variable is a random jumble of letters and numbers that Spotify assigns to songs, therefore adding no value to our analysis. The "release_date" is a more exact date of release for the song, but they range from the year of the song to the actual day, month, and year, making it very skewed/uneven. Furthermore, we also have the release year in the dataset as the "year" variable, which we believe to be more than enough in terms of timing. Therefore, both variables can be dropped from the dataset.
+
+```{r Drop Columns}
+spotify <- subset(spotify, select = -c(id, release_date))
+```
+
+### Reorder Columns
+
+Next, we quickly want to reorder our remaining variables to be more readable to us, putting our key variables to the left (title and artist, followed by our explanatory variables, and our response variable last (popularity)).
+
+```{r Column Reorder}
+spotify <- spotify[, c(12, 2, 17, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 13)]
+```
+
+### NA's in the Dataset?
+
+Upon initial exploration, there appears to be no NA's in the dataset, but just in case we missed anything, we counted the number of NA's through sum(is.na()).
+
+```{r NAs}
+sum(is.na(spotify))
+```
+
+The return gave us an answer of 0, signifying that there are no NA values in our dataset.
+
+### Remove Duplicates (if any)
+
+Each observation was unique with the original 19 variables, but after dropping two of the variables, we would like to see if there were any duplicates in the revised dataset. Our thinking is that some songs may have been released twice or more. This would happen in instances where songs are released as a single and then again as a part of an album release, for example.
+
+```{r Duplicates_1}
+spotify <- spotify %>%
+  distinct()
+```
+
+After running the above, above ~600 observations dropped, meaning there were a small number of duplicates in the dataset relative to the total number of songs that we started with.  
+
+However, there appear to be some remaining duplicates with the same explanatory variables but different popularity/response variables. So we want to see how many there are and and remove.
+
+```{r Duplicates_2}
+dups <- duplicated(spotify[,1:16]) # Checks for remaining duplicates
+spotify <- spotify[!dups,]         # Removes those duplicates from the dataset
+```
+
+This removed an additional ~2000 observations from our dataset, a good amount dropped but still a small amount relative to the total amount of our original dataset.
+
+### Convert Variables to Appropriate Data Type
+
+Now, we want to convert some variables to the appropriate data types. Currently, all our explanatory variables are numbers, but some need to be factored, specifically the "explicit", "mode", "key" variables.
+
+```{r Variable Conversions}
+summary(as.factor(spotify$explicit))
+spotify$explicit <- factor(spotify$explicit, levels=c(0,1), labels=c("No", "Yes")) # Converts 0's to "No" and 1's to "Yes"
+
+summary(as.factor(spotify$mode))
+spotify$mode <- factor(spotify$mode, levels=c(0,1), labels=c("No", "Yes"))         # Converts 0's to "No" and 1's to "Yes"
+
+
+summary(as.factor(spotify$key))
+spotify$key <- factor(spotify$key, 
+                      levels=c(0,1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+                      labels=c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")) 
+# Converts 0-11 range to appropriate letter on the note scale
+str(spotify)
+```
+
+### Revised Data Exploraton
+
+After all the revisions to the dataset, let us now see what it looks like.
+
+```{r Exploration_2}
+str(spotify)
+summary(spotify)
+head(spotify)
+tail(spotify)
+dim(spotify)
+```
+
+# Base Exploration
+
+### Explore the Distribution of Variables
+
+Before diving deep into the data from a visual perspective, let us look at distribution of the numeric response variables with histograms just to get a sense of where these variables lie.
+
+```{r Histograms}
+hist(spotify$year)
+hist(spotify$acousticness)
+hist(spotify$danceability)
+hist(spotify$duration_ms)
+hist(spotify$energy)
+hist(spotify$instrumentalness)
+hist(spotify$liveness)
+hist(spotify$loudness)
+hist(spotify$speechiness)
+hist(spotify$tempo)
+hist(spotify$valence)
+hist(spotify$popularity)
+```
+
+### Visualizations
+
+Since our response variable is going to be popularity, we thought it best to explore some of the data in relation to a song's popularity.  
+
+We will be using scatter plots with regression lines to explore our data so we want to included two lines: one smoothed and one linear.
+
+```{r Regression Line Formulas}
+formula1 = y ~ x # formula for the linear regression
+formula2 <- y ~ splines::bs(x, 4) # formula for the smoothed line
+```
+
+**Popularity Ratings over the Years**
+
+From initial observations, it seemed that the year a song was released had a positive relationship on the song's popularity. In other words, it seemed that the more recent a song was released, the higher its popularity is. Thus, we decided to visualize on a scatter plot with regression lines. 
+
+```{r Viz_1}
+x_1 <- ggplot(spotify, aes(x=year, y=popularity)) +
+  dark_theme_bw() +
+  geom_point(color = "forestgreen", alpha = 0.2) +
+  geom_smooth(method = "lm",
+              formula = formula1,
+              color = "white", 
+              size = 2, 
+              se = FALSE) + 
+  geom_smooth(method = "gam",
+              formula = formula2,
+              color = "grey75",
+              size = 2,
+              se = FALSE) + 
+  labs(x = "Year",  
+       y = "Popularity",
+       title = "Year vs. Popularity", 
+       subtitle = "Spotify: Songs from 1921 - 2020") + 
+  theme(axis.line = element_line(colour = "white"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank(),
+        plot.subtitle = element_text(face = "italic")) +
+  scale_x_continuous(breaks=seq(from = 1920, to = 2020, by = 10))
+x_1
+```
+
+As seen above, there is a positive relationship between popularity and the year of a song's release, even though the fitted line has a bit more fluctuation over time. Nevertheless, both lines show positive relationships.
+
+**Popularity vs. Energy**
+
+Another relationship we wanted to explore was the relationship between popularity and the energy of a song. Intuition is telling us that the more energy a song has, the more popular it will be. This is because popularity ratings are based off the modern day popularity ratings in the United States and a lot of modern day music that is popular in the United States gives off more energy.
+
+```{r Viz_2}
+x_2 <- ggplot(spotify, aes(x=popularity, y=energy)) +
+  dark_theme_bw() +
+  geom_point(color = "yellow4", alpha = 0.2) +
+  geom_smooth(method = "lm",
+              formula = formula1,
+              color = "white", 
+              size = 2, 
+              se = FALSE) + 
+  geom_smooth(method = "gam",
+              formula = formula2,
+              color = "grey70",
+              size = 2,
+              se = FALSE) + 
+  labs(x = "Popularity",  
+       y = "Energy",
+       title = "Popularity vs. Energy", 
+       subtitle = "Spotify: Songs from 1921 - 2020") + 
+  theme(axis.line = element_line(colour = "white"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank(),
+        plot.subtitle = element_text(face = "italic"))
+x_2
+```
+
+As seen above, there is a positive relationship between popularity and the energy a song gives off. Again, like the previous graph, the fitted line has a bit more fluctuation over the popularity scale. Nevertheless, both lines show positive relationships.
+
+**Popularity Distribution among Explicit and Not Explicit**
+
+We also wanted to look at popularity by itself and break it down by an explanatory variable. One variable that we find interesting is the explicit variable and how it distributed throughout the popularity variable. Thus, we decided to use a density plot to see that distribution.
+
+```{r Viz_3}
+x_3 <- ggplot(spotify, aes(x = popularity, fill = explicit)) + 
+  geom_density(alpha = 0.3) +
+  dark_theme_bw() + 
+  labs(x = "Popularity",
+       title = "Popularity: Explicit vs. Not Explicit",
+       subtitle = "Spotify: Songs from 1921 - 2020",
+       fill = "Explicit") + 
+    theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank(), 
+        plot.subtitle = element_text(face = "italic")) +
+  scale_fill_manual(values = c("Yes" = "red", "No" = "blue"))
+x_3
+```
+
+As seen above, explicit songs belong in a higher distribution/range of popularity than none explicit songs. However, both explicit and none explicit songs have a good amount of songs that are low in popularity.
+
+### Linear Regression
+
+Now, let's see how a linear regression runs, using popularity as the response variable and including all the explanatory variables in the model.
+
+```{r Reg_1}
+spotify_fit1 <- lm(popularity ~ 
+                     year + 
+                     acousticness + 
+                     danceability + 
+                     duration_ms + 
+                     energy + 
+                     explicit + 
+                     instrumentalness + 
+                     liveness + 
+                     key + 
+                     loudness + 
+                     mode + 
+                     speechiness + 
+                     tempo + 
+                     valence,
+                 data = spotify)
+
+summary(spotify_fit1)
+```
+
+As seen above, this model is statistically significant, with a p-value essentially at 0. Most of our explanatory variables are statistically significant, although most of the key and the duration_ms variables are well above the 0.05 threshold for significance. Of the variables that are significant, it seems that the year, tempo, and danceability are increasing the popularity of a song the more prevalent they are in a song. In the reverse, speechiness and accousticness are decreasing the popularity of a song the more present they are in a song.
+
+This model has a pretty decent R Squared at 0.7847, meaning that the current model is explaining about 78.5% of the variation in the song's popularity.
+
+**Introduction of Interaction Term**
+
+From there, we wanted to look at the introduction of an interaction term into the model. In particular, we thought that tempo and danceability might have some type of interaction/relationship between each other. In other words, we would think that the danceability of a song is influenced by that song's tempo. So, we re-ran the regression model with that interaction included in the model.
+
+```{r Reg_2 Interaction}
+spotify_fit2 <- lm(popularity ~ 
+                     year +
+                     acousticness + 
+                     danceability + 
+                     duration_ms + 
+                     energy + 
+                     explicit + 
+                     instrumentalness + 
+                     liveness + 
+                     key + 
+                     loudness + 
+                     mode + 
+                     speechiness + 
+                     tempo + 
+                     valence +
+                     (tempo * danceability),
+                 data = spotify)
+summary(spotify_fit2)
+```
+
+Not much has changed with the introduction of the interaction. The model is still significant as are many of the variables in the model. However, what is interesting is that the interaction term is not statistically significant in the model. Looking at the interaction term vs the individual terms in the model, the interaction of danceability and tempo seems to indicate that not much is being added to a song's popularity score. However, the introduction of the interaction term, even though it is not statistically significant and is not adding much to the model, it did cause the effect the individual components (the danceability and tempo variables) has on the model to decrease. In other words, their coefficients dropped, with tempo dropping rather significantly.
+
+# Analysis
+
+Our ultimate goal in working with this dataset is to learn which variables, and what amounts of those variables, are most important in determining the popularity of a song. In order to best do that, we need to run some models that can predict song popularity, tune them to increase their accuracy, and then extract variable importance from them. So let us dive into that process below.    
+
+We plan to split our training and test datasets based off the decade a song is in, so we will need to create that variable and add it to our data. This is only a "temporary" variable in the sense that it will only be created to group/split the variables into the training and test, but will not be included in those datasets when our models and tuning are run.
+
+### Create Decade Variable and Add to Dataset
+
+```{r Decade}
+spotify$decade <- round(spotify$year - 5, digits = -1) # creates the decade variable
+
+str(spotify) # See how it looks in our dataset
+```
+
+### Create Training and Test Datasets for Random Forest Model
+
+```{r Training & Test - Random Forest}
+set.seed(2374) # Set seed
+
+# Drop song name, artist name, year, and convert to indicators
+x_vars <- as.data.frame(model.matrix(popularity~., data = spotify[,4:18]))[,-1]
+x_vars$popularity <- spotify$popularity
+names(x_vars) <- make.names(names(x_vars))
+names(x_vars)
+
+# Perform stratified sampling
+spot_split_dat <- stratified(x_vars, # Set dataset
+                         group = "decade", # Set variables to use for stratification
+                         size = 0.2,  # Set size of test set
+                         bothSets = TRUE ) # Return both training and test sets
+ 
+ # Extract train data - drop decade
+ spot_train_dat <- spot_split_dat[[2]][,c(1:23, 25)]
+ # Extract test data
+ spot_test_dat <- spot_split_dat[[1]][,c(1:23, 25)]
+
+# Check size
+nrow(spot_train_dat)
+nrow(spot_test_dat)
+
+summary(spot_train_dat)
+summary(spot_test_dat)
+```
+
+### Run Random Forest Model
+
+```{r Random Forest Model}
+spot_bag <- randomForest(popularity ~.,# Set tree formula
+                data = spot_train_dat, # Set dataset
+                ntree = 200, # Set number of trees to use
+                do.trace = TRUE)
+
+#save(spot_bag, file = "bag_mod_spotify.rda")
+#load("bag_mod_spotify.rda")
+
+```
+
+### Predicting the Random Forest/Bagging Model
+
+```{r RM RMSE}
+spot_preds <- predict(spot_bag, spot_test_dat) # Create predictions for bagging model
+spot_bag_rmse <- rmse(actual = spot_test_dat$popularity, predicted = spot_preds)
+
+spot_bag_rmse
+```
+
+### Create Training and Test Datasets for XGBoost Model
+
+```{r Training & Test Sets - XGBoost}
+set.seed(2374)
+# Create training matrix
+spot_dtrain <- xgb.DMatrix(data = as.matrix(spot_train_dat[, 1:23]), label = spot_train_dat$popularity)
+# Create test matrix
+spot_dtest <- xgb.DMatrix(data = as.matrix(spot_test_dat[, 1:23]), label = spot_test_dat$popularity)
+```
+
+### Training XGBoost Model
+
+```{r Train xgboost}
+set.seed(2374)
+spot_bst_1 <- xgboost(data = spot_dtrain, # Set training data
+               
+               nrounds = 100, # Set number of rounds
+               
+               verbose = 1, # 1 - Prints out fit
+                print_every_n = 20) # Prints out result every 20th iteration
+
+#save(spot_bst_1, file = "bst_1_spotify.rda")
+#load('bst_1_spotify.rda')
+```
+
+### Predicting with XGBoost
+
+```{r xbgoost predictions_1}
+spot_bst_preds_1 <- predict(spot_bst_1, spot_dtest) # Create predictions for xgboost model
+spot_bst_1_rmse <- rmse(actual = spot_test_dat$popularity, predicted = spot_bst_preds_1)
+
+spot_bst_1_rmse
+```
+
+### Plotting of Predicted vs. Actual Popularity Scores for XGBoost Model #1
+
+```{r Act vs Pred_1}
+plot_data <- cbind.data.frame(spot_test_dat$popularity,spot_bst_preds_1)
+names(plot_data) <- c("Actual","Predicted")
+plot_data$col <- log(abs(plot_data$Actual - plot_data$Predicted) + 1)
+act_pred_1 <- ggplot(plot_data, aes(x=Actual,y=Predicted,color = col)) +
+  dark_theme_bw() +
+  geom_point() +
+  geom_smooth(color="white", se = FALSE) +
+  scale_color_gradient(low = "blue", high = "red")+
+   labs(title = "Popularity: Actual vs. Predicted",
+       subtitle = "XGBoost Model #1") +
+  theme(axis.line = element_line(colour = "white"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank(), 
+        plot.subtitle = element_text(face = "italic"))+
+  scale_x_continuous(breaks=seq(from = 0, to = 100, by = 20)) +
+  scale_y_continuous(breaks=seq(from = 0, to = 100, by = 20))
+act_pred_1
+```
+
+As seen above, we have a positive slope for Predicted vs. Actual line. The blue line that runs through the plot signifies pretty much every song that was accurately predicted, with every point in red an incorrect prediction for the song's popularity. The further away a point is from the blue, the more inaccurate the prediction of popularity was.
+
+### RMSE Breakdown
+
+```{r RMSE Breakdown_1}
+rmse_df <- data.frame(model=c("Random Forest", "XGBoost #1"),
+                rmse=c(spot_bag_rmse, spot_bst_1_rmse))
+
+rmse_bar <-ggplot(data=rmse_df, aes(x=model, y=rmse)) +
+  geom_bar(stat="identity", fill="dodgerblue4")+
+    geom_text(aes(label=round(rmse, digits = 4)), vjust=1.6, color="white", size=5.5)+
+  dark_theme_bw() +
+  labs(title = "RMSE: Random Forest vs. XGBoost Model #1") +
+  theme(axis.line = element_line(colour = "snow4"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank())
+rmse_bar
+```
+
+As we can see, the RMSE for both the Random Forest Model and the initial XGBoost Model are essentially the same at 13.25-13.5 for the Test Set. However, one thing to note is that our initial XGBoost Model RMSE is slightly higher than the Random Forest Model. Let's tune our XGBoost Model and see if we can get increase its accuracy in order to decrease get the RMSE down.
+
+### Tuning XGBoost Model
+
+Lets run our algorithm with a high number of trees and a learning rate of 0.1 to determine an appropriate number of trees to use. 
+
+**Parameter Tuning**
+
+```{r xgboost param tuning}
+# Use xgb.cv to run cross-validation inside xgboost
+set.seed(2374)
+bst <- xgb.cv(data = spot_dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+               eta = 0.1, # Set learning rate
+              
+               nrounds = 1000, # Set number of rounds
+               early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+               verbose = 1, # 1 - Prints out fit
+               nthread = 1, # Set number of parallel threads
+               print_every_n = 20) # Prints out result every 20th iteration
+```
+
+From this, we see 432 was the optimal number of iterations for our model.  
+
+Next, we will set the number of iterations to 500 and include an early stop parameter of 50 for our next round of tuning. Next up we will tune max.depth and min_child_weight as these are likely to have the largest effect on model outcome. 
+
+**Maximum Depth & Minimum Child Weight Tuning**
+
+```{r tune xgb params 1}
+
+# Be Careful - This can take a very long time to run
+max_depth_vals <- c(3, 5, 7, 10, 15) # Create vector of max depth values
+min_child_weight <- c(1,3,5,7, 10, 15) # Create vector of min child values
+
+# Expand grid of parameter values
+cv_params <- expand.grid(max_depth_vals, min_child_weight)
+names(cv_params) <- c("max_depth", "min_child_weight")
+# Create results vector
+rmse_vec <- rmsle_vec <- mae_vec <- rep(NA, nrow(cv_params))
+
+# Loop through results
+for(i in 1:nrow(cv_params)){
+  set.seed(2374)
+  bst_tune <- xgb.cv(data = spot_dtrain, # Set training data
+        
+    nfold = 5, # Use 5 fold cross-validation
+               
+    eta = 0.1, # Set learning rate
+    max.depth = cv_params$max_depth[i], # Set max depth
+    min_child_weight = cv_params$min_child_weight[i], # Set minimum number of samples in node to split
+             
+               
+    nrounds = 500, # Set number of rounds
+    early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+    verbose = 1, # 1 - Prints out fit
+    nthread = 1, # Set number of parallel threads
+    print_every_n = 20,
+    eval_metric = "rmsle",
+    eval_metric = "mae",
+    eval_metric = "rmse") # Prints out result every 20th iteration
+               
+
+  rmse_vec[i] <- bst_tune$evaluation_log$test_rmse_mean[bst_tune$best_ntreelimit]
+  rmsle_vec[i] <- bst_tune$evaluation_log$test_rmsle_mean[bst_tune$best_ntreelimit]
+  mae_vec[i] <- bst_tune$evaluation_log$test_mae_mean[bst_tune$best_ntreelimit]
+}
+
+```
+
+Now, let us visualize those results to see which combination of max_depth and min_child_weight will minimize our RMSE, RMSLE, MAE.
+
+```{r Visualise Tune 1}
+# Join results in dataset
+res_db <- cbind.data.frame(cv_params, rmse_vec, rmsle_vec, mae_vec)
+names(res_db)[3:5] <- c("rmse", "rmsle", "mae") 
+res_db$max_depth <- as.factor(res_db$max_depth) # Convert tree number to factor for plotting
+res_db$min_child_weight <- as.factor(res_db$min_child_weight) # Convert node size to factor for plotting
+# Print RMSE heatmap
+g_2 <- ggplot(res_db, aes(y = max_depth, x = min_child_weight, fill = rmse)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$rmse), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(title = "RMSE", x = "Minimum Child Weight", y = "Max Depth", fill = "Scale") # Set labels
+g_2 # Generate plot
+
+# print RMSLE heatmap
+g_3 <- ggplot(res_db, aes(y = max_depth, x = min_child_weight, fill = rmsle)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$rmsle), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(title = "RMSLE", x = "Minimum Child Weight", y = "Max Depth", fill = "Scale") # Set labels
+g_3 # Generate plot
+
+
+# print MAE heatmap
+g_4 <- ggplot(res_db, aes(y = max_depth, x = min_child_weight, fill = mae)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$mae), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(title = "MAE", x = "Minimum Child Weight", y = "Max Depth", fill = "Scale") # Set labels
+g_4 # Generate plot
+```
+
+From the visualization, we can see that a max_depth and min_child_weight combination of 10 and 15 yields us the lowest RMSE at this point of tuning. Thus, it is the optimal combination to use in our model.  
+
+One thing to note is that negative predictions for RMSLE is causing null values, thereby breaking the results from being visualized. Therefore, will will not be evaluating those results in finding optimal values for our model  
+
+Now, taking those optimal values, let us apply them to our model and tune the gamma value.
+
+**Gamma Tuning**
+
+```{r gamma tuning}
+gamma_vals <- c(0, 0.05, 0.1, 0.15, 0.2) # Create vector of gamma values
+
+# Be Careful - This can take a very long time to run
+set.seed(2374)
+# Create results vector
+rmse_vec <- rmsle_vec <- mae_vec <- rep(NA, length(gamma_vals))
+for(i in 1:length(gamma_vals)){
+  bst_tune <- xgb.cv(data = spot_dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.1, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 15, # Set minimum number of samples in node to split
+              gamma = gamma_vals[i], # Set minimum loss reduction for split
+
+              
+               
+              nrounds = 500, # Set number of rounds
+              early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+               
+              eval_metric = "rmsle",
+              eval_metric = "mae",
+              eval_metric = "rmse") # Prints out result every 20th iteration
+               
+
+  rmse_vec[i] <- bst_tune$evaluation_log$test_rmse_mean[bst_tune$best_ntreelimit]
+  rmsle_vec[i] <- bst_tune$evaluation_log$test_rmsle_mean[bst_tune$best_ntreelimit]
+  mae_vec[i] <- bst_tune$evaluation_log$test_mae_mean[bst_tune$best_ntreelimit]
+}
+```
+
+Now, let's bind those results into a table to see gamma is the most optimal for our model.
+
+```{r bind gamma tuning}
+cbind.data.frame(gamma_vals,rmse_vec,rmsle_vec,mae_vec)
+```
+
+From these values, we can see that a gamma value of 0.00 gives us the lowest RMSE.   
+
+Next, let's apply our min_child_weight, max_depth, and gamma values to tune subsample and column samples.
+
+**Subsample & Column Sample Tuning**
+
+```{r tune xgb samples}
+
+# Be Careful - This can take a very long time to run
+subsample <- c(0.6, 0.7, 0.8, 0.9, 1) # Create vector of subsample values
+colsample_by_tree <- c(0.6, 0.7, 0.8, 0.9, 1) # Create vector of col sample values
+
+# Expand grid of tuning parameters
+cv_params <- expand.grid(subsample, colsample_by_tree)
+names(cv_params) <- c("subsample", "colsample_by_tree")
+# Create results vector
+rmse_vec <- rmsle_vec <- mae_vec <- rep(NA, nrow(cv_params))
+# Loop through parameter values
+for(i in 1:nrow(cv_params)){
+  set.seed(2374)
+  bst_tune <- xgb.cv(data = spot_dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.1, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 15, # Set minimum number of samples in node to split
+              gamma = 0.0, # Set minimum loss reduction for split
+              subsample = cv_params$subsample[i], # Set proportion of training data to use in tree
+              colsample_bytree = cv_params$colsample_by_tree[i], # Set number of variables to use in each tree
+               
+              nrounds = 500, # Set number of rounds
+              early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+               
+              eval_metric = "rmsle",
+              eval_metric = "mae",
+              eval_metric = "rmse") # Prints out result every 20th iteration
+               
+
+  rmse_vec[i] <- bst_tune$evaluation_log$test_rmse_mean[bst_tune$best_ntreelimit]
+  rmsle_vec[i] <- bst_tune$evaluation_log$test_rmsle_mean[bst_tune$best_ntreelimit]
+  mae_vec[i] <- bst_tune$evaluation_log$test_mae_mean[bst_tune$best_ntreelimit]
+}
+  
+```
+
+Now, let's us visualize the results.
+
+```{r Visualise Tune 2}
+# Join results in dataset
+res_db <- cbind.data.frame(cv_params, rmse_vec, rmsle_vec, mae_vec)
+names(res_db)[3:5] <- c("rmse", "rmsle", "mae") 
+res_db$colsample_by_tree <- as.factor(res_db$colsample_by_tree) # Convert tree number to factor for plotting
+res_db$subsample <- as.factor(res_db$subsample) # Convert node size to factor for plotting
+# Print RMSE heatmap
+g_5 <- ggplot(res_db, aes(y = colsample_by_tree, x = subsample, fill = rmse)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$rmse), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(title = "RMSE", x = "Subsample", y = "Column Sample", fill = "Scale") # Set labels
+g_5 # Generate plot
+
+# print RMSLE heatmap
+g_6 <- ggplot(res_db, aes(y = colsample_by_tree, x = subsample, fill = rmsle)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$rmsle), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(title = "RMSLE", x = "Subsample", y = "Column Sample", fill = "Scale") # Set labels
+g_6 # Generate plot
+
+
+# print MAE heatmap
+g_7 <- ggplot(res_db, aes(y = colsample_by_tree, x = subsample, fill = mae)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$mae), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(title = "MAE", x = "Subsample", y = "Column Sample", fill = "Scale") # Set labels
+g_7 # Generate plot
+```
+
+Here, we see that a col_sample and subsample combination of 0.9-1 gives the lowest RMSE, with the previous components of tuning taken into account.  
+
+The last step then is to tune ETA.
+
+**eta Tuning**
+
+```{r eta tuning}
+
+# Use xgb.cv to run cross-validation inside xgboost
+set.seed(2374)
+bst_mod_1 <- xgb.cv(data = spot_dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.3, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 15, # Set minimum number of samples in node to split
+              gamma = 0.0, # Set minimum loss reduction for split
+              subsample = 1, # Set proportion of training data to use in tree
+              colsample_bytree = 0.9, # Set number of variables to use in each tree
+               
+              nrounds = 1000, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              eval_metric = "rmsle",
+              eval_metric = "mae",
+              eval_metric = "rmse") # Prints out result every 20th iteration
+
+
+set.seed(2374) 
+bst_mod_2 <- xgb.cv(data = spot_dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.1, # Set learning rate
+              max.depth =  10, # Set max depth
+              min_child_weight = 15, # Set minimum number of samples in node to split
+              gamma = 0.0, # Set minimum loss reduction for split
+              subsample = 1, # Set proportion of training data to use in tree
+              colsample_bytree = 0.9, # Set number of variables to use in each tree
+               
+              nrounds = 1000, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              eval_metric = "rmsle",
+              eval_metric = "mae",
+              eval_metric = "rmse") # Prints out result every 20th iteration
+set.seed(2374)
+bst_mod_3 <- xgb.cv(data = spot_dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.05, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 15, # Set minimum number of samples in node to split
+              gamma = 0.0, # Set minimum loss reduction for split
+              subsample = 1, # Set proportion of training data to use in tree
+              colsample_bytree =  0.9, # Set number of variables to use in each tree
+               
+              nrounds = 1000, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              eval_metric = "rmsle",
+              eval_metric = "mae",
+              eval_metric = "rmse") # Prints out result every 20th iteration
+set.seed(2374)
+bst_mod_4 <- xgb.cv(data = spot_dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.01, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 15, # Set minimum number of samples in node to split
+              gamma = 0.0, # Set minimum loss reduction for split
+              subsample = 1, # Set proportion of training data to use in tree
+              colsample_bytree = 0.9, # Set number of variables to use in each tree
+               
+              nrounds = 1000, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              eval_metric = "rmsle",
+              eval_metric = "mae",
+              eval_metric = "rmse") # Prints out result every 20th iteration
+
+set.seed(2374)
+bst_mod_5 <- xgb.cv(data = spot_dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.005, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 15, # Set minimum number of samples in node to split
+              gamma = 0.0, # Set minimum loss reduction for split
+              subsample = 1 , # Set proportion of training data to use in tree
+              colsample_bytree = 0.9, # Set number of variables to use in each tree
+               
+              nrounds = 1000, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+               
+              eval_metric = "rmsle",
+              eval_metric = "mae",
+              eval_metric = "rmse") # Prints out result every 20th iteration
+```
+
+We can then plot the error rate over different learning rates:
+
+```{r eta plots}
+
+# Extract results for model with eta = 0.3
+pd1 <- cbind.data.frame(bst_mod_1$evaluation_log[,c("iter", "test_rmse_mean")], rep(0.3, nrow(bst_mod_1$evaluation_log)))
+names(pd1)[3] <- "eta"
+# Extract results for model with eta = 0.1
+pd2 <- cbind.data.frame(bst_mod_2$evaluation_log[,c("iter", "test_rmse_mean")], rep(0.1, nrow(bst_mod_2$evaluation_log)))
+names(pd2)[3] <- "eta"
+# Extract results for model with eta = 0.05
+pd3 <- cbind.data.frame(bst_mod_3$evaluation_log[,c("iter", "test_rmse_mean")], rep(0.05, nrow(bst_mod_3$evaluation_log)))
+names(pd3)[3] <- "eta"
+# Extract results for model with eta = 0.01
+pd4 <- cbind.data.frame(bst_mod_4$evaluation_log[,c("iter", "test_rmse_mean")], rep(0.01, nrow(bst_mod_4$evaluation_log)))
+names(pd4)[3] <- "eta"
+# Extract results for model with eta = 0.005
+pd5 <- cbind.data.frame(bst_mod_5$evaluation_log[,c("iter", "test_rmse_mean")], rep(0.005, nrow(bst_mod_5$evaluation_log)))
+names(pd5)[3] <- "eta"
+# Join datasets
+plot_data <- rbind.data.frame(pd1, pd2, pd3, pd4, pd5)
+# Converty ETA to factor
+plot_data$eta <- as.factor(plot_data$eta)
+# Plot points
+g_8 <- ggplot(plot_data, aes(x = iter, y = test_rmse_mean, color = eta))+
+  geom_point(alpha = 0.5) +
+  theme_bw() + # Set theme
+  theme(panel.grid.major = element_blank(), # Remove grid
+        panel.grid.minor = element_blank(), # Remove grid
+        panel.border = element_blank(), # Remove grid
+        panel.background = element_blank()) + # Remove grid 
+  labs(x = "Number of Trees", title = "RMSE v Number of Trees",
+       y = "RMSE", color = "Learning \n Rate")  # Set labels
+g_8
+
+# Plot lines
+g_9 <- ggplot(plot_data, aes(x = iter, y = test_rmse_mean, color = eta))+
+  geom_smooth(alpha = 0.5) +
+  theme_bw() + # Set theme
+  theme(panel.grid.major = element_blank(), # Remove grid
+        panel.grid.minor = element_blank(), # Remove grid
+        panel.border = element_blank(), # Remove grid
+        panel.background = element_blank()) + # Remove grid 
+  labs(x = "Number of Trees", title = "RMSE v Number of Trees",
+       y = "RMSE", color = "Learning \n Rate")  # Set labels
+g_9
+
+```
+
+From this we see that 0.05 is the ETA with the best learning rate, as it minimizes RMSE in our model.
+
+### Plot the Best XGBoost Model
+
+```{r fit final xgb model}
+set.seed(2374)
+bst_final <- xgboost(data = spot_dtrain, # Set training data
+              
+        
+               
+              eta = 0.05, # Set learning rate
+              max.depth =  10, # Set max depth
+              min_child_weight = 15, # Set minimum number of samples in node to split
+              gamma = 0.00, # Set minimum loss reduction for split
+              subsample =  1, # Set proportion of training data to use in tree
+              colsample_bytree = 0.9, # Set number of variables to use in each tree
+               
+              nrounds = 150, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              eval_metric = "rmsle",
+              eval_metric = "mae",
+              eval_metric = "rmse") # Prints out result every 20th iteration
+
+#save(bst_final, file = "bst_final_spotify.rda")
+#load('bst_final_spotify.rda')
+
+```
+
+### Create Predictions against the Test Set
+
+```{r xbgoost predictions_final}
+spot_bst_preds_2 <- predict(bst_final, spot_dtest) # Create predictions for xgboost model
+spot_bst_2_rmse <- rmse(actual = spot_test_dat$popularity, predicted = spot_bst_preds_2)
+
+spot_bst_2_rmse
+```
+
+### Plot the Results of Predictions
+
+```{r Plot of Final XGBoost Model}
+plot_data2 <- cbind.data.frame(spot_test_dat$popularity,spot_bst_preds_2)
+names(plot_data2) <- c("Actual","Predicted")
+plot_data2$col <- log(abs(plot_data2$Actual - plot_data2$Predicted) + 1)
+act_pred_2 <- ggplot(plot_data2, aes(x=Actual,y=Predicted,color = col)) +
+  dark_theme_bw() +
+  geom_point() +
+  geom_smooth(color="white", se=FALSE) +
+  scale_color_gradient(low = "blue", high = "red") +
+   labs(title = "Popularity: Actual vs. Predicted",
+       subtitle = "XGBoost Final Model") +
+  theme(axis.line = element_line(colour = "white"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank(), 
+        plot.subtitle = element_text(face = "italic"))+
+  scale_x_continuous(breaks=seq(from = 0, to = 100, by = 20)) +
+  scale_y_continuous(breaks=seq(from = 0, to = 100, by = 20))
+act_pred_2
+```
+
+While this looks similar to our original model, there has been some improvement, as evidenced by the increased slope of our graph. Furthermore, more of the songs in our test set are being accurately predicted, as they are falling within the blue part of our graph, increasing the size of that part of the visualization.
+
+### Plotting of RMSE against Three Models
+
+```{r Plotting of RMSE against all Models}
+rmse_df_2 <- data.frame(model=c("Random Forest", "XGBoost #1", "XGBoost Final"),
+                rmse=c(spot_bag_rmse, spot_bst_1_rmse, spot_bst_2_rmse))
+
+rmse_bar_2 <-ggplot(data=rmse_df_2, aes(x=model, y=rmse)) +
+  geom_bar(stat="identity", fill="dodgerblue4")+
+    geom_text(aes(label=round(rmse, digits = 4)), vjust=1.6, color="white", size=5.5)+
+  dark_theme_bw() +
+  labs(title = "RMSE: Random Forest vs. XGBoost Model #1 vs. XGBoost Final Model") +
+  theme(axis.line = element_line(colour = "snow4"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(), 
+        panel.background = element_blank())
+rmse_bar_2
+```
+
+As we can see, tuning our model has decreased RMSE by roughly ~0.20 against the test test compared to the original XGBoost model. Furthermore, tuning our XGBoost model also pushed our RMSE below the Random Forest Model RMSE. 
+
+### Variable Importance
+
+Now let's plot the results to see which variables have importance/significance in determining a song's popularity rating.
+
+```{r XGBoost Importance}
+# Extract importance
+imp_mat <- xgb.importance(model = bst_final)
+# Plot importance (top 10 variables)
+xgb.plot.importance(imp_mat, top_n = 10)
+```
+
+From the above, we see that acousticness, loudness, and speechiness are our top three most important variables when determining the popularity of a song, with acousticness being very significant in determining a song's popularity. 
+
+### SHAP Variable Importance
+
+The above is great information, but we want to know what amounts of those song characteristics shape a song's popularity. Thus, let's plot variable importance using SHAP to get a sense of that.
+
+```{r, include=FALSE}
+# return matrix of shap score and mean ranked score list
+shap.score.rank <- function(xgb_model = xgb_mod, shap_approx = TRUE, 
+                            X_train = mydata$train_mm){
+  require(xgboost)
+  require(data.table)
+  shap_contrib <- predict(xgb_model, X_train,
+                          predcontrib = TRUE, approxcontrib = shap_approx)
+  shap_contrib <- as.data.table(shap_contrib)
+  shap_contrib[,BIAS:=NULL]
+  cat('make SHAP score by decreasing order\n\n')
+  mean_shap_score <- colMeans(abs(shap_contrib))[order(colMeans(abs(shap_contrib)), decreasing = T)]
+  return(list(shap_score = shap_contrib,
+              mean_shap_score = (mean_shap_score)))
+}
+
+# a function to standardize feature values into same range
+std1 <- function(x){
+  return ((x - min(x, na.rm = T))/(max(x, na.rm = T) - min(x, na.rm = T)))
+}
+
+
+# prep shap data
+shap.prep <- function(shap  = shap_result, X_train = mydata$train_mm, top_n){
+  require(ggforce)
+  # descending order
+  if (missing(top_n)) top_n <- dim(X_train)[2] # by default, use all features
+  if (!top_n%in%c(1:dim(X_train)[2])) stop('supply correct top_n')
+  require(data.table)
+  shap_score_sub <- as.data.table(shap$shap_score)
+  shap_score_sub <- shap_score_sub[, names(shap$mean_shap_score)[1:top_n], with = F]
+  shap_score_long <- melt.data.table(shap_score_sub, measure.vars = colnames(shap_score_sub))
+  
+  # feature values: the values in the original dataset
+  fv_sub <- as.data.table(X_train)[, names(shap$mean_shap_score)[1:top_n], with = F]
+  # standardize feature values
+  fv_sub_long <- melt.data.table(fv_sub, measure.vars = colnames(fv_sub))
+  fv_sub_long[, stdfvalue := std1(value), by = "variable"]
+  # SHAP value: value
+  # raw feature value: rfvalue; 
+  # standarized: stdfvalue
+  names(fv_sub_long) <- c("variable", "rfvalue", "stdfvalue" )
+  shap_long2 <- cbind(shap_score_long, fv_sub_long[,c('rfvalue','stdfvalue')])
+  shap_long2[, mean_value := mean(abs(value)), by = variable]
+  setkey(shap_long2, variable)
+  return(shap_long2) 
+}
+
+plot.shap.summary <- function(data_long){
+  x_bound <- max(abs(data_long$value))
+  require('ggforce') # for `geom_sina`
+  plot1 <- ggplot(data = data_long)+
+    coord_flip() + 
+    # sina plot: 
+    geom_sina(aes(x = variable, y = value, color = stdfvalue)) +
+    # print the mean absolute value: 
+    geom_text(data = unique(data_long[, c("variable", "mean_value"), with = F]),
+              aes(x = variable, y=-Inf, label = sprintf("%.3f", mean_value)),
+              size = 3, alpha = 0.7,
+              hjust = -0.2, 
+              fontface = "bold") + # bold
+    # # add a "SHAP" bar notation
+    # annotate("text", x = -Inf, y = -Inf, vjust = -0.2, hjust = 0, size = 3,
+    #          label = expression(group("|", bar(SHAP), "|"))) + 
+    scale_color_gradient(low="#FFCC33", high="#6600CC", 
+                         breaks=c(0,1), labels=c("Low","High")) +
+    theme_bw() + 
+    theme(axis.line.y = element_blank(), axis.ticks.y = element_blank(), # remove axis line
+          legend.position="bottom") + 
+    geom_hline(yintercept = 0) + # the vertical line
+    scale_y_continuous(limits = c(-x_bound, x_bound)) +
+    # reverse the order of features
+    scale_x_discrete(limits = rev(levels(data_long$variable)) 
+    ) + 
+    labs(y = "SHAP value (impact on model output)", x = "", color = "Feature value") 
+  return(plot1)
+}
+
+
+
+
+var_importance <- function(shap_result, top_n=10)
+{
+  var_importance=tibble(var=names(shap_result$mean_shap_score), importance=shap_result$mean_shap_score)
+  
+  var_importance=var_importance[1:top_n,]
+  
+  ggplot(var_importance, aes(x=reorder(var,importance), y=importance)) + 
+    geom_bar(stat = "identity") + 
+    coord_flip() + 
+    theme_light() + 
+    theme(axis.title.y=element_blank()) 
+}
+
+
+```
+
+
+```{r SHAP Variable Importance}
+load("shap_long_new_2.rda")
+
+#source("a_insights_shap_functions.r")
+plot.shap.summary(data_long = shap_long)
+```
+
+As we can see, a great deal of information can be derived from above. The biggest takeaway is that acousticness, the most significant variable in determining a song's popularity, actually needs to be less present in a song for a song to have a higher popularity rating. This makes sense because in this dataset, songs of more recent years tend to have higher popularity songs, and songs of recent years have little to no acousticness in them compared to songs of earlier years. Many others conclusions can be made by studying this plot and applying it to the trends of the music industry over time.
+
+# Conclusions
+
+Overall, the RMSE might seem high, even after tuning, but we believe it to be a fair number. This is because we did not incorporate artist name into the model, which we believe to have a huge factor in a song's popularity, based off the way popularity is calculated in the dataset. Furthermore, we did not incorporate the year variable into our model. We originally did, but the it was skewing the results of the variable importance, as more recent songs have a higher popularity ratings. Therefore, this recency bias in the dataset was not allowing us to see what components of songs make up popularity. So, it was removed from the model and reran.  
+
+With those variables excluded, we expected the RMSE to go up, as less variables were being included to run the model. However, that trade-off allowed us to bypass the artist name and release year of songs in order to find the physical components of music that make songs popular in the United States today. With this information, musicians, producers, record companies, etc. can study our findings and apply it to the music they are currently making in order to try and maximize the popularity of their song on Spotify.  
