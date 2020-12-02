@@ -1,37 +1,15 @@
-## Welcome to GitHub Pages
+## Introduction
 
-You can use the [editor on GitHub](https://github.com/fkryan73/ND_MSBA/edit/gh-pages/index.md) to maintain and preview the content for your website in Markdown files.
+Hello, my name is Kevin Ryan, and I am from southern New Jersey, right outside Philadelphia, PA. My journey in programming, data analysis, etc. started August 2020 when I began my Master's program in Buisness Analytics at the University of Notre Dame in Notre Dame, Indiana. My expected graduation date will be May 2021.
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+I will be constantly updating this repository as I move throughout the program to highlight some of the completed coursework and projects that I feel confident in enough to publish. #GoIrish
 
-### Markdown
+## Projects
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+Machine Learning - Spotify and Popularity
 
-```markdown
-Syntax highlighted code block
+- Analyzed a Spotify dataset from Kaggle and used principles learned in my Machine Learning class to study what characteristics and what levels of those characteristics contrinuted to songs' popularity ratings.
 
-# Header 1
-## Header 2
-### Header 3
+## An Aside
 
-- Bulleted
-- List
-
-1. Numbered
-2. List
-
-**Bold** and _Italic_ and `Code` text
-
-[Link](url) and ![Image](src)
-```
-
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/fkryan73/ND_MSBA/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
-
-### Support or Contact
-
-Having trouble with Pages? Check out our [documentation](https://docs.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+Like mentioned above, I am brand new to this world, and I know I am going to mess up royally even the most basic tasks, such as proper file upload. However, I want to learn as much as possible, so I am open to any and all discussion about anything data science & analytics related (even though I do not much). So if anyone has any critique or advice on what I publish or how I publish it, please reach out to discuss. I am all ears. Thank you for your help and considseration in advance.
