@@ -2,7 +2,7 @@
 
 Hello, my name is Kevin Ryan, and I am from southern New Jersey, right outside Philadelphia, PA. My journey in programming, data analysis, etc. started August 2020 when I began my Master's program in Buisness Analytics at the University of Notre Dame in Notre Dame, Indiana. My expected graduation date will be May 2021.
 
-I will be constantly updating this repository as I move throughout the program to highlight some of the completed coursework and projects that I feel confident in enough to publish. #GoIrish
+I will be constantly updating this repository as I move throughout the program to highlight some of the completed coursework and projects that I feel confident in enough to publish. I hope all enjoy.
 
 ## Projects
 
