@@ -1,6 +1,6 @@
 ## Introduction
 
-Hello, my name is Kevin Ryan, and I am from southern New Jersey, right outside Philadelphia, PA. My journey in programming, data analysis, etc. started August 2020 when I began my Master's program in Buisness Analytics at the University of Notre Dame in Notre Dame, Indiana. My expected graduation date will be May 2021.
+Hello, my name is Kevin Ryan, and I am from southern New Jersey, right outside Philadelphia, PA. My journey in programming, data analysis, visualization, etc. started in August 2020 when I began my Master's program in Buisness Analytics at the University of Notre Dame in Notre Dame, Indiana. My expected graduation date will be May 2021.
 
 I will be constantly updating this repository as I move throughout the program to highlight some of the completed coursework and projects that I feel confident in enough to publish. I hope all enjoy.
 
@@ -9,6 +9,6 @@ I will be constantly updating this repository as I move throughout the program t
 Machine Learning - Spotify and Popularity
 
 - Analyzed a Spotify dataset from Kaggle and used principles learned in my Machine Learning class to study what characteristics and what levels of those characteristics contrinuted to songs' popularity ratings.
-- Dataset: https://www.kaggle.com/yamaerenay/spotify-dataset-19212020-160k-tracks
+- Dataset : https://www.kaggle.com/yamaerenay/spotify-dataset-19212020-160k-tracks
 
 
