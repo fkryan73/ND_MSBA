@@ -7,7 +7,7 @@ I will be constantly updating this repository as I move throughout the program t
 ## Projects
 
 Machine Learning - Spotify and Popularity
-- Analyzed a Spotify dataset from Kaggle and used principles learned in my Machine Learning class to study what characteristics and what levels of those characteristics contrinuted to songs' popularity ratings.
+- Analyzed a Spotify dataset from Kaggle and used principles learned in my Machine Learning class to study what characteristics and what levels of those characteristics contributed to songs' popularity ratings.
 - Dataset: https://www.kaggle.com/yamaerenay/spotify-dataset-19212020-160k-tracks
 - Easy access to HTML: https://htmlpreview.github.io/?https://github.com/fkryan73/ND_MSBA/blob/main/spotify_analysis_final.html 
 
